@@ -53,6 +53,10 @@ def open(file_name, mode='a', **kwargs):
         if 'format_version' not in f.attrs and len(f) == 0:
             f.attrs['format_version'] = __format_version__
 
+    if f.mode != 'r':            
+        realpath = os.path.realpath(str(file_name))
+        f.attrs['file'] = realpath
+
     return f
 
 
@@ -90,3 +94,6 @@ class File(Group):
 
     def flush(self):
         self._h5node.flush()
+
+    def copy(self, source, target):
+        return self._h5node.copy(source, target._h5node)

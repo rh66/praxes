@@ -231,6 +231,11 @@ class MeshParameters(ScanParameters):
         fastAxis = settings.value('fastAxis').toString()
         return [fastAxis, slowAxis]
 
+class FScanParameters(AScanParameters):
+    _cmd = 'flyscan'
+
+class FMeshParameters(MeshParameters):
+    _cmd = 'flymesh'
 
 class ZZMeshParameters(MeshParameters):
     _cmd = 'zzmesh'
@@ -258,6 +263,8 @@ class ScanParametersWidget(QtGui.QWidget):
     _scanParametersClasses['d3scan'] = D3ScanParameters
     _scanParametersClasses['mesh'] = MeshParameters
     _scanParametersClasses['zzmesh'] = ZZMeshParameters
+    _scanParametersClasses['flyscan'] = FScanParameters
+    _scanParametersClasses['flymesh'] = FMeshParameters
 #    _scanParametersClasses['Escan'] = EScanParameters
 #    _scanParametersClasses['tseries'] = TSeriesParameters
 
@@ -265,7 +272,7 @@ class ScanParametersWidget(QtGui.QWidget):
         ['',
          'ascan', 'a2scan', 'a3scan',
          'dscan', 'd2scan', 'd3scan',
-         'mesh', 'zzmesh'
+         'mesh', 'zzmesh', 'flyscan', 'flymesh'
         ]
 
     def __init__(self, specRunner, parent=None):
@@ -339,7 +346,7 @@ class ScanParametersWidget(QtGui.QWidget):
         args.append(self.integrationTimeSpinBox.value())
         cmd = ' '.join(str(i) for i in args)
 
-        self._scan(cmd)
+        self._scan(cmd) 
 
     @QtCore.pyqtSignature("QString")
     def on_scanTypeComboBox_currentIndexChanged(self, val):

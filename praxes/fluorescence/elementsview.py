@@ -11,6 +11,9 @@ from PyQt4 import QtCore, QtGui
 from .plotwidgets import QtMplCanvas, Toolbar
 from .plotoptions import PlotOptions
 
+import ast
+
+import inspect
 
 #logger = logging.getLogger(__file__)
 DEBUG = False
@@ -42,6 +45,7 @@ class ElementBaseFigure(QtMplCanvas):
         self.axes = self.figure.add_axes([0.1, 0.1, 0.8, 0.8])
 
         self._elementData = self.window().getElementMap()
+        if not(hasattr(self,'unitConvert')): self.unitConvert = 1.0
         self._createInitialFigure()
 
     def _createInitialFigure(self):
@@ -95,7 +99,7 @@ class ElementImageFigure(ElementBaseFigure):
     def __init__(self, scan_data, parent=None):
         super(ElementImageFigure, self).__init__(scan_data, parent)
 
-        min, max = self._elementData.min(), self._elementData.max()
+        min, max = self._elementData.min(), np.amax(self._elementData.max(), 1.0e-7)
         self._clim = [min, max or float(max==0)]
 
     def _createInitialFigure(self):
@@ -106,7 +110,8 @@ class ElementImageFigure(ElementBaseFigure):
             y_axis = [a for a in axes if a.axis == 2][0]
             extent.extend(x_axis.range)
             extent.extend(y_axis.range)
-            self.image = self.axes.imshow(self._elementData, extent=extent,
+            unitCvt = self.unitConvert
+            self.image = self.axes.imshow(self._elementData*unitCvt, extent=extent,
                                            interpolation='nearest',
                                            origin='lower')
             self._colorbar = self.figure.colorbar(self.image)
@@ -140,9 +145,12 @@ class ElementImageFigure(ElementBaseFigure):
         self.updateFigure()
 
     def updateFigure(self, elementData=None):
+	
         if elementData is None: elementData = self._elementData
         else: self._elementData = elementData
-        self.image.set_data(elementData)
+        unitCvt = self.unitConvert
+        self.image.set_data(elementData*unitCvt)
+
 
         if self.autoscale:
             self.image.autoscale()
@@ -151,8 +159,29 @@ class ElementImageFigure(ElementBaseFigure):
             self.maxValueChanged.emit(self._clim[1])
         else:
             self.image.set_clim(self._clim)
-
         self.draw()
+
+
+    def aspectToggle(self, checked):
+        if checked:
+            self.axes.set_aspect('auto')
+        else:
+            self.axes.set_aspect('equal')
+        self.draw()
+        
+        
+    def unitChanged(self, checked, DREW = True):
+        if checked:
+            cfgstr = self.scan_data.entry.measurement.attrs['pymca_config']
+            cfg = ast.literal_eval(cfgstr)
+            layer0 = cfg['multilayer']['Layer0']
+            self.unitConvert = 1.0e6*layer0[2]*layer0[3]
+        else:
+            self.unitConvert = 1.0
+        if DREW:
+            self.updateFigure(self._elementData)
+
+
 
 
 class ElementPlotFigure(ElementBaseFigure):
@@ -220,12 +249,29 @@ class ElementsView(QtGui.QGroupBox):
         with scan_data:
             if len(scan_data.entry.acquisition_shape) == 2:
                 self.figure = ElementImageFigure(scan_data, self)
+                self.toolbar = Toolbar(self.figure, self)
+                Hlayout = QtGui.QHBoxLayout()
+                Hlayout.addWidget(self.toolbar)
+
+                self.aspectICon = QtGui.QCheckBox('Aspect auto')
+                self.aspectICon.stateChanged.connect(self._aspectToggle)
+
+                self.unitIcon = QtGui.QCheckBox(u'\u03BC'+'g/cm^2') 
+                self.unitIcon.stateChanged.connect(self._unitChange)
+                self._unitChange()  
+
+                Hlayout.addStretch(1)
+                Vlayout = QtGui.QVBoxLayout()
+                Vlayout.addWidget(self.aspectICon)
+                Vlayout.addWidget(self.unitIcon)
+                Hlayout.addLayout(Vlayout)   
+                layout.addLayout(Hlayout)
 
             else:
                 self.figure = ElementPlotFigure(scan_data, self)
 
-            self.toolbar = Toolbar(self.figure, self)
-            layout.addWidget(self.toolbar)
+                self.toolbar = Toolbar(self.figure, self)
+                layout.addWidget(self.toolbar)
             layout.addWidget(self.figure)
             self.setLayout(layout)
 
@@ -233,6 +279,24 @@ class ElementsView(QtGui.QGroupBox):
 
         self.toolbar.pickEvent.connect(self.figure.onPick)
         self.figure.pickEvent.connect(self.pickEvent)
+
+
+    def _aspectToggle(self):
+        try:
+            checked = self.aspectICon.isChecked()
+            self.figure.aspectToggle(checked)
+        except:
+            pass
+
+
+    def _unitChange(self):
+        try:
+            checked = self.unitIcon.isChecked()
+            self.figure.unitChanged(checked, self)
+        except:
+            pass    
+
+
 
     @property
     def plotOptions(self):

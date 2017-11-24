@@ -63,6 +63,7 @@ def analyze_spectrum(index, spectrum, monitor):
     report = {'estimate':estimate-start,
               'fit': fit-estimate,
               'fitconc': fitconc-fit}
+    
 
     return {
         'index': index,
@@ -119,8 +120,13 @@ class XfsTaskManager(TaskManager):
             )
 
     def next(self):
+        measureitems = [x.encode('UTF8') for x in self._measurement.keys()]
+        vortexs = [item for item in measureitems if 'vortex' in item]
+        vortex = vortexs[0]
+        [n_indices2, slen] = self._measurement[vortex+'/counts'].shape
+	#[n_indices2, slen] = self._measurement['vortex1/counts'].shape
         i = self._next_index
-        if i >= self.n_points:
+        if i >= np.min(np.array([self.n_points,n_indices2])):
             raise StopIteration()
 
         with self.scan:
@@ -142,11 +148,12 @@ class XfsTaskManager(TaskManager):
 
             cts = [counts[i] for counts in self._counts]
             spectrum = np.sum(cts, 0)
+	    if np.sum(spectrum)<50:
+		return None
 
             monitor = None
             if self._monitor is not None:
                 monitor = self._monitor[i]
-
         return analyze_spectrum, (i, spectrum, monitor)
 
     def update_records(self, data):
@@ -174,4 +181,6 @@ class XfsTaskManager(TaskManager):
                 k = key.replace(' ', '_')
                 self._results.update_mass_fraction(k, index, val)
         except KeyError:
+	    print 'updata records except .....'
             pass
+

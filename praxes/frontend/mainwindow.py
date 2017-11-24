@@ -14,6 +14,7 @@ from .ui import resources
 from .phynx import FileModel, FileView, ExportRawCSV, ExportCorrectedCSV
 from praxes.io import phynx
 
+import inspect
 
 #logger = logging.getLogger(__file__)
 
@@ -266,12 +267,18 @@ class MainWindow(QtGui.QMainWindow):
         if os.path.isfile(filename):
             return self.fileModel.openFile(filename)
         else:
-            newfilename = QtGui.QFileDialog.getSaveFileName(
-                self,
-                "Save File",
-                os.path.join(os.getcwd(), filename),
-                "hdf5 files (*.h5 *.hdf5 *.hdf *.nxs)"
-                )
+	    nameonly = filename.split('/')[-1]
+	    newfile = os.path.join(os.getcwd(), nameonly)
+	    if os.path.isfile(newfile):
+		newfilename = newfile
+	    else:
+            	newfilename = QtGui.QFileDialog.getSaveFileName(
+                    self,
+                    "Save File",
+                    os.path.join(os.getcwd(), nameonly),
+                    "hdf5 files (*.h5 *.hdf5 *.hdf *.nxs)"
+                    )
+
             if newfilename:
                 newfilename = str(newfilename)
                 if os.path.splitext(newfilename)[-1] not in (

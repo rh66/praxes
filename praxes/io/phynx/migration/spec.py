@@ -12,6 +12,8 @@ import numpy as np
 
 from praxes.io import spec
 from .. import open
+import h5py
+from scipy import interpolate
 
 
 class ScanInfoParser(object):
@@ -59,6 +61,7 @@ def _mesh(scan_info, *args):
     return scan_info
 get_scan_metadata['mesh'] = _mesh
 get_scan_metadata['zzmesh'] = _mesh
+get_scan_metadata['flymesh'] = _mesh
 
 def _gmesh(scan_info, *args):
     i = 0
@@ -119,6 +122,7 @@ get_scan_metadata['d3scan'] = _1d
 get_scan_metadata['ztscan'] = _1d
 get_scan_metadata['ytscan'] = _1d
 get_scan_metadata['xtscan'] = _1d
+get_scan_metadata['flyscan'] = _1d
 
 def _tseries(scan_info, *args):
     numPts = int(args[0])
@@ -253,6 +257,162 @@ def process_mca(scan, measurement, masked=None, report=False):
     except UnboundLocalError:
         pass
 
+def h5deadtime(ocr):
+    icrA = [0, 5.0e3, 2e4, 5e4, 1e5, 1.5e5, 2e5, 2.5e5, 3e5, 4e5, 5.0e5,  6.0e5, 7.0e5, 8e5, 
+	9.0e5, 1.0e6, 1.1e6, 1.2e6, 1400000, 1600000, 1800000, 2000000, 2200000, 2400000, 
+	2600000, 2800000, 3000000, 3200000, 3400000, 3600000, 3800000, 4000000, 4200000,
+     	4400000, 4600000, 4800000, 5000000, 5200000, 5400000, 5600000, 5800000, 6000000, 
+	6200000, 6400000, 6600000, 6800000, 7000000, 7200000, 7400000]
+    icrA = np.array(icrA)
+    
+    ocrA = [0,0.0049966, 0.019946, 0.0496636, 0.0986591, 0.146993, 0.194672, 0.241703, 
+	0.28809, 0.378973, 0.46736, 0.553316, 0.63688, 0.718102, 0.797032, 0.873716, 
+	0.94820, 1.0205,  1.1589,  1.2892, 1.4117, 1.5268, 1.6347,1.7358, 1.8304, 
+	1.9186,  2.0009,  2.0775,  2.1485,  2.2143,  2.2750,  2.3310,  2.3823,  2.4293,
+	2.4721,  2.5108, 2.5458,  2.5771,  2.6049, 2.6294,  2.6508,  2.6691,  2.6846, 
+	2.6974,  2.7076,  2.7154,  2.7208,  2.7239,  2.7250]
+    ocrA = np.array(ocrA)*1e6
+    
+    try:
+        ocr[ocr>np.amax(ocrA)] = np.amax(ocrA)
+	ocr[ocr<5.0] = 5.0
+    except:
+	if ocr>np.amax(ocrA):
+	    ocr = np.amax(ocrA)
+	if ocr<5.0:
+	    ocr = 5.0   
+    f = interpolate.splrep(ocrA, icrA, s=0)
+    icr = interpolate.splev(ocr, f, der=0)
+    return 100.0*(1.0-ocr/icr)
+
+def remove_one(arr_in, scan_col):
+    rows = int(len(arr_in)/(scan_col+1))
+    arr_out = np.zeros(len(arr_in)-rows)
+    if rows >= 1:
+        for irow in range(rows):
+            arr_out[irow*scan_col:(irow+1)*scan_col] = arr_in[irow*(scan_col+1):irow*(scan_col+1)+scan_col]
+        if (len(arr_in)-rows*(scan_col+1)):
+            arr_out[rows*scan_col:rows*scan_col+len(arr_in)-rows(scan_col+1)+1] = arr_in[rows*(scan_col+1):]
+        return arr_out
+    else:
+        return arr_in
+
+ 
+def process_hdf5(hdfdir, measurement, dsize):  
+    # phf5 file has scan_col+1 columns in each row !
+    if len(dsize) == 2:
+        scan_row = dsize[0]; scan_col = dsize[1]
+    else:
+        scan_col = dsize[0]
+    # [scan_row, scan_col] = measurement.entry.attrs['acquisition_shape']
+    # print 'process_hdf5: acquired_shape: ', scan_row, scan_col
+    monitor_efficiency = 1
+    dead_time_format = "percent"
+    attrs = {}
+    attrs['fast_dead_time'] = 1.35e-7
+    # print measurement.scalar_data.items()
+    monitor = measurement.scalar_data.attrs['monitor']
+    attrs['monitor'] = monitor
+
+
+    mtime = lambda f: os.stat(os.path.join(hdfdir,f)).st_mtime
+    files = list(sorted(os.listdir(hdfdir),key=mtime))
+    #files = sorted(os.listdir(hdfdir))
+    flast = os.path.join(hdfdir, files[-1])
+    try:
+        hdf5file = h5py.File(flast, 'r')
+        nfiles = len(files)
+        [mcapts,nvortex,chlen]=hdf5file['/entry/instrument/detector/data'].shape
+        hdf5file.close()
+    except:
+        flast = os.path.join(hdfdir, files[-2])
+        hdf5file = h5py.File(flast, 'r')
+        nfiles = len(files) - 1
+        [mcapts,nvortex,chlen]=hdf5file['/entry/instrument/detector/data'].shape
+        hdf5file.close()
+    if len(dsize)==2:
+        #npoints = (len(files)-1)*scan_col + mcapts
+        if mcapts < scan_col:
+	    nfiles = nfiles -1
+            mcapts = scan_col
+        npoints = (nfiles-1)*scan_col + mcapts
+        npoints_spec = len(measurement.scalar_data['mcs0'])
+        if npoints_spec < npoints:
+            nfiles = int(npoints_spec/scan_col)
+            npoints = nfiles*scan_col 
+    else:
+        npoints = mcapts
+
+
+    t_inteval = measurement.scalar_data['mcs0'][:npoints]/1.0e6  
+    channels = range(chlen)
+    mca_temp = {}
+    countSum = np.zeros((nvortex, npoints))
+    for key in range(nvortex):
+        attrs['id']='vortex'+str(key+1)
+        mca = measurement.create_group(
+            attrs['id'], type='MultiChannelAnalyzer', **attrs)
+        mca.create_dataset(
+            'counts',
+            type='Spectrum',
+            dtype='float32',
+            shape=(npoints, len(channels))
+            )
+    row_n = 0
+    for f in files[:nfiles]:
+        hdffile = os.path.join(hdfdir, f)
+        hdf5file = h5py.File(hdffile,'r')
+    	[mcapts,nvortex,chlen]=hdf5file['/entry/instrument/detector/data'].shape
+        
+        countSum[0,row_n*scan_col:row_n*scan_col+mcapts] = hdf5file['/entry/instrument/detector/NDAttributes/CHAN1ROI1'][:mcapts]
+        countSum[1,row_n*scan_col:row_n*scan_col+mcapts] = hdf5file['/entry/instrument/detector/NDAttributes/CHAN2ROI1'][:mcapts]
+        countSum[2,row_n*scan_col:row_n*scan_col+mcapts] = hdf5file['/entry/instrument/detector/NDAttributes/CHAN3ROI1'][:mcapts]
+        countSum[3,row_n*scan_col:row_n*scan_col+mcapts] = hdf5file['/entry/instrument/detector/NDAttributes/CHAN4ROI1'][:mcapts]
+        for key in range(nvortex):
+            keyid = 'vortex'+str(key+1)
+            measurement[keyid]['counts'][row_n*scan_col:row_n*scan_col+mcapts,:] = hdf5file['/entry/instrument/detector/data'][:,key,:]
+        row_n += 1
+        hdf5file.close()
+
+    for key in range(nvortex):
+        mca_temp['total_counts'] = countSum[key,:]
+        mca_temp['dead_time'] = h5deadtime(countSum[key,:]/t_inteval)
+        mca_temp['channels'] = channels
+        mca_temp['monitor'] = measurement.scalar_data[monitor][:npoints]
+        keyid = 'vortex'+str(key+1)
+        for sbkey, val in mca_temp.items():
+            kwargs = {'class':'Signal'}
+            if sbkey == 'dead_time':
+                kwargs['class'] = 'DeadTime'
+                kwargs['dead_time_format'] = dead_time_format
+            if sbkey == 'monitor':
+                kwargs['efficiency'] = monitor_efficiency
+                dset = measurement[keyid].create_dataset(
+                    monitor, shape=(npoints,), dtype='float32', **kwargs
+                    )
+            elif sbkey == 'channels':
+                dset = measurement[keyid].create_dataset(
+                    sbkey, shape=(len(channels),), dtype='float32', **kwargs
+                    )
+            else:
+                dset = measurement[keyid].create_dataset(
+                    sbkey, shape=(npoints,), dtype='float32', **kwargs
+                )
+            dset[:len(val)] = val
+
+#        if npts_actual>scan_col+1:
+#            irow = 0
+#            while (mcapts >= ((irow+1)*(scan_col+1)-1)):
+#                mca['counts'][irow*scan_col:(irow+1)*scan_col,:] = hdf5file[ \
+#                     '/entry/instrument/detector/data'][irow*(scan_col+1):irow*(scan_col+1)+scan_col,key,:]
+#                irow += 1
+#            if (mcapts - irow*(scan_col+1)):
+#                mca['counts'][irow*scan_col:npts_actual+1,:] = hdf5file[ \
+#                     '/entry/instrument/detector/data'][irow*(scan_col+1):mcapts,key,:]
+#        else:
+#            mca['counts'][:mcapts,:] = hdf5file['/entry/instrument/detector/data'][:,key,:]
+       
+
 def convert_scan(scan, h5file, spec_filename, report=False):
     # access a bunch of metadata before creating an hdf5 group
     # if specfile raises an error because the scan is empty,
@@ -375,6 +535,11 @@ def convert_scan(scan, h5file, spec_filename, report=False):
     if not dir:
         dir = os.getcwd()
     for f in sorted(os.listdir(dir)):
+        if f==spec_filename+'_scan'+ scan.name:    #+'.hdf5':
+            hdfdir = os.path.join(dir, f)
+            #hdf5file = h5py.File(f,'r')
+            process_hdf5(hdfdir, measurement, scan_info['scan_shape'])
+            #hdf5file.close()
         if (
             f.startswith(spec_filename+'.scan%s.'%scan.name) and
             f.endswith('.mca')
