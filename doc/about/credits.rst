@@ -18,7 +18,8 @@ Darren Dale <darren.dale-AT-cornell.edu>
 
 Rong Huang
   Extended praxes capability to process spec files of different format and hdf5 
-  spectrum files after CHESS use xspress3 XRF amplifier and flyscans, in v1.0.x. 
+  spectrum files after CHESS implements xspress3 XRF amplifier and flyscans, in v1.0.x. 
+  Also did small modifications as spectrum enhancement, adding more display unit, etc. 
 
 Contributors
 ============
