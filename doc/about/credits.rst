@@ -16,6 +16,9 @@ Darren Dale <darren.dale-AT-cornell.edu>
   Project creator and leader, Praxes core, testing, documentation, release
   manager.
 
+Rong Huang
+  Extended praxes capability to process spec files of different format and hdf5 
+  spectrum files after CHESS use xspress3 XRF amplifier and flyscans, in v1.0.x. 
 
 Contributors
 ============
